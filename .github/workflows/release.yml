@@ -276,7 +276,7 @@ jobs:
       - name: Verify manifests and generate checksums
         run: npm run release:verify -- artifacts "${{ needs.verify.outputs.version }}"
       - name: Attest release artifacts
-        uses: actions/attest-build-provenance@977bb373ede98d70efdf65b84cb5f73e068dcc2a # v3
+        uses: actions/attest@f7c74d28b9d84cb8768d0b8ca14a4bac6ef463e6 # v4.2.0
         with:
           subject-path: artifacts/*
       - name: Publish release atomically
