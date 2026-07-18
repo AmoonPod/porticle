@@ -213,7 +213,7 @@ jobs:
             }
           }
           Get-ChildItem release -Recurse -Filter 'Porticle.exe' | Where-Object FullName -Match 'unpacked' | ForEach-Object {
-            $fuses = npx @electron/fuses read --app $_.FullName
+            $fuses = npx @electron/fuses read --app $_.FullName | Out-String
             $expected = @(
               'RunAsNode is Disabled',
               'EnableCookieEncryption is Enabled',

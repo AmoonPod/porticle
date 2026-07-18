@@ -127,7 +127,7 @@ jobs:
         if: runner.os == 'Windows'
         shell: pwsh
         run: |
-          $fuses = npx @electron/fuses read --app release/win-unpacked/Porticle.exe
+          $fuses = npx @electron/fuses read --app release/win-unpacked/Porticle.exe | Out-String
           $expected = @(
             'RunAsNode is Disabled',
             'EnableCookieEncryption is Enabled',
