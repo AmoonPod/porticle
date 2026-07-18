@@ -1,0 +1,98 @@
+appId: io.github.amoonpod.porticle
+productName: Porticle
+copyright: Copyright © 2026 Porticle contributors
+
+directories:
+  output: release
+  buildResources: resources
+
+publish:
+  provider: github
+  owner: AmoonPod
+  repo: porticle
+  releaseType: release
+
+electronUpdaterCompatibility: '>=2.16'
+
+files:
+  - out/**
+  - package.json
+  - LICENSE
+  - THIRD_PARTY_NOTICES.md
+
+extraResources:
+  - from: resources
+    to: resources
+    filter:
+      - icon.*
+      - trayTemplate.png
+      - trayTemplate@2x.png
+      - tray-windows.png
+      - tray-windows@2x.png
+
+asar: true
+compression: maximum
+npmRebuild: false
+afterPack: ./scripts/after-pack.mjs
+
+electronFuses:
+  runAsNode: false
+  enableCookieEncryption: true
+  enableNodeOptionsEnvironmentVariable: false
+  enableNodeCliInspectArguments: false
+  enableEmbeddedAsarIntegrityValidation: true
+  onlyLoadAppFromAsar: true
+  loadBrowserProcessSpecificV8Snapshot: false
+  grantFileProtocolExtraPrivileges: false
+
+mac:
+  icon: resources/icon.icns
+  category: public.app-category.developer-tools
+  hardenedRuntime: true
+  minimumSystemVersion: '13.0'
+  extendInfo:
+    LSUIElement: true
+    NSAppTransportSecurity:
+      NSAllowsLocalNetworking: true
+    NSAudioCaptureUsageDescription: null
+    NSBluetoothAlwaysUsageDescription: null
+    NSBluetoothPeripheralUsageDescription: null
+    NSCameraUsageDescription: null
+    NSMicrophoneUsageDescription: null
+  target:
+    - target: dmg
+      arch: [arm64, x64]
+    - target: zip
+      arch: [arm64, x64]
+  artifactName: Porticle-${version}-mac-${arch}.${ext}
+
+dmg:
+  sign: false
+  backgroundColor: '#17191e'
+  window:
+    width: 540
+    height: 380
+  contents:
+    - x: 150
+      y: 185
+    - x: 390
+      y: 185
+      type: link
+      path: /Applications
+
+win:
+  icon: resources/icon.ico
+  target:
+    - target: nsis
+      arch: [x64, arm64]
+  artifactName: Porticle-${version}-windows-${arch}.${ext}
+
+nsis:
+  oneClick: false
+  perMachine: false
+  allowElevation: true
+  allowToChangeInstallationDirectory: true
+  createDesktopShortcut: false
+  createStartMenuShortcut: true
+  shortcutName: Porticle
+  deleteAppDataOnUninstall: false

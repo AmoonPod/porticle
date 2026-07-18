@@ -1,0 +1,35 @@
+version: 2
+updates:
+  - package-ecosystem: npm
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+      time: '06:00'
+      timezone: Europe/Rome
+    open-pull-requests-limit: 5
+    groups:
+      electron-toolchain:
+        patterns:
+          - electron
+          - electron-vite
+          - electron-builder
+          - '@electron/*'
+      test-toolchain:
+        patterns:
+          - vitest
+          - '@vitest/*'
+          - '@playwright/*'
+          - '@testing-library/*'
+      lint-toolchain:
+        patterns:
+          - eslint
+          - eslint-*
+          - typescript-eslint
+          - prettier
+
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: monthly
+    open-pull-requests-limit: 3

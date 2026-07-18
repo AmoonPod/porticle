@@ -1,0 +1,95 @@
+{
+  "name": "porticle",
+  "version": "0.1.0",
+  "description": "A fast, tray-first local port manager for macOS and Windows.",
+  "productName": "Porticle",
+  "private": true,
+  "type": "module",
+  "main": "./out/main/index.js",
+  "license": "MIT",
+  "author": "Porticle contributors",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/AmoonPod/porticle.git"
+  },
+  "homepage": "https://github.com/AmoonPod/porticle#readme",
+  "bugs": {
+    "url": "https://github.com/AmoonPod/porticle/issues"
+  },
+  "keywords": [
+    "electron",
+    "localhost",
+    "port-manager",
+    "developer-tools",
+    "tray-app"
+  ],
+  "engines": {
+    "node": ">=24.0.0",
+    "npm": ">=11.0.0"
+  },
+  "scripts": {
+    "dev": "electron-vite dev",
+    "dev:renderer": "vite --config vite.renderer.config.ts",
+    "start": "electron-vite preview",
+    "build": "npm run typecheck && electron-vite build && node scripts/verify-build.mjs",
+    "build:app": "npm run build && electron-builder --publish never",
+    "build:mac": "npm run build && electron-builder --mac --publish never",
+    "build:win": "npm run build && electron-builder --win --publish never",
+    "package:mac:adhoc": "node scripts/package-mac-adhoc.mjs",
+    "icons": "node scripts/generate-icons.mjs",
+    "screenshots": "node scripts/capture-screenshots.mjs",
+    "release:verify": "node scripts/verify-release-assets.mjs",
+    "lint": "eslint . --max-warnings 0",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:coverage": "vitest run --coverage",
+    "test:e2e": "playwright test",
+    "test:package": "node scripts/smoke-package.mjs"
+  },
+  "dependencies": {
+    "electron-updater": "^6.8.9"
+  },
+  "devDependencies": {
+    "@electron/fuses": "^2.1.1",
+    "@eslint/js": "^10.0.1",
+    "@fontsource/ibm-plex-mono": "^5.2.7",
+    "@fontsource/ibm-plex-sans": "^5.2.7",
+    "@playwright/test": "^1.61.1",
+    "@testing-library/jest-dom": "^6.9.1",
+    "@testing-library/react": "^16.3.2",
+    "@types/node": "^26.0.0",
+    "@types/react": "^19.2.14",
+    "@types/react-dom": "^19.2.3",
+    "@vitejs/plugin-react": "^5.2.0",
+    "@vitest/coverage-v8": "^4.1.10",
+    "electron": "43.1.1",
+    "electron-builder": "^26.15.3",
+    "electron-vite": "^5.0.0",
+    "eslint": "^10.0.0",
+    "eslint-plugin-react-hooks": "^7.1.1",
+    "eslint-plugin-react-refresh": "^0.5.2",
+    "jsdom": "^29.0.0",
+    "lucide-react": "^1.25.0",
+    "png-to-ico": "^3.0.1",
+    "prettier": "^3.8.2",
+    "react": "^19.2.7",
+    "react-dom": "^19.2.7",
+    "sharp": "^0.35.3",
+    "typescript": "^6.0.3",
+    "typescript-eslint": "^8.56.1",
+    "vite": "^7.3.6",
+    "vitest": "^4.1.10",
+    "zod": "^4.4.3"
+  },
+  "allowScripts": {
+    "sharp@0.35.3": true,
+    "esbuild@0.25.12": true,
+    "esbuild@0.28.1": true,
+    "fsevents@2.3.2": true,
+    "fsevents@2.3.3": true,
+    "electron-winstaller@5.4.0": true
+  }
+}

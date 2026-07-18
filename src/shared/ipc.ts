@@ -1,0 +1,20 @@
+export const IPC = {
+  snapshotGet: 'porticle:snapshot:get',
+  snapshotRefresh: 'porticle:snapshot:refresh',
+  snapshotChanged: 'porticle:snapshot:changed',
+  settingsGet: 'porticle:settings:get',
+  settingsUpdate: 'porticle:settings:update',
+  settingsChanged: 'porticle:settings:changed',
+  processTerminate: 'porticle:process:terminate',
+  clipboardCopy: 'porticle:clipboard:copy',
+  serviceOpen: 'porticle:service:open',
+  watchSet: 'porticle:watch:set',
+  appInfo: 'porticle:app:info',
+  updateGet: 'porticle:update:get',
+  updateCheck: 'porticle:update:check',
+  updateDownload: 'porticle:update:download',
+  updateInstall: 'porticle:update:install',
+  updateChanged: 'porticle:update:changed',
+  appHide: 'porticle:app:hide',
+  appQuit: 'porticle:app:quit'
+} as const

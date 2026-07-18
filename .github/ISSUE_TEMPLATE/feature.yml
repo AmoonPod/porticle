@@ -1,0 +1,56 @@
+name: Focused improvement
+description: Propose an improvement to the core find, understand, watch, open, copy, or stop workflow.
+title: '[Idea]: '
+labels: [enhancement, needs-triage]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: Workflow problem
+      description: Describe the current friction, not just the desired control.
+      placeholder: When I am ..., I cannot quickly ..., so I have to ...
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed behavior
+      description: Explain how it fits the tray-first workflow and keyboard model.
+    validations:
+      required: true
+  - type: dropdown
+    id: scope
+    attributes:
+      label: Primary area
+      options:
+        - Discovery or recognition
+        - Search or filtering
+        - Copy or open actions
+        - Watch and notification behavior
+        - Termination safety
+        - Keyboard or accessibility
+        - Appearance
+        - Platform support
+    validations:
+      required: true
+  - type: textarea
+    id: security
+    attributes:
+      label: Privilege and security impact
+      description: Does this add OS authority, IPC, persistence, a subprocess, a network request, or external content?
+    validations:
+      required: true
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered
+      description: Include a terminal or operating-system workaround when one exists.
+  - type: checkboxes
+    id: fit
+    attributes:
+      label: Product fit
+      options:
+        - label: This improves the local-port workflow rather than adding a general dashboard feature.
+          required: true
+        - label: I searched existing issues and pull requests.
+          required: true

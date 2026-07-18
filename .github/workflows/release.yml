@@ -1,0 +1,301 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*.*.*'
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Existing semantic version tag to release (for example v1.2.3)
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  verify:
+    name: Verify release source
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    outputs:
+      tag: ${{ steps.tag.outputs.value }}
+      version: ${{ steps.version.outputs.value }}
+    steps:
+      - id: tag
+        name: Resolve and validate tag
+        shell: bash
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          INPUT_TAG: ${{ inputs.tag }}
+          REF_NAME: ${{ github.ref_name }}
+        run: |
+          tag="$REF_NAME"
+          if [[ "$EVENT_NAME" == 'workflow_dispatch' ]]; then tag="$INPUT_TAG"; fi
+          if [[ ! "$tag" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "Expected a stable semantic v-prefixed tag, got: $tag" >&2
+            exit 1
+          fi
+          printf 'value=%s\n' "$tag" >> "$GITHUB_OUTPUT"
+      - name: Check out tagged source
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          ref: ${{ steps.tag.outputs.value }}
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Verify checked-out tag
+        shell: bash
+        env:
+          RELEASE_TAG: ${{ steps.tag.outputs.value }}
+        run: test "$(git rev-parse "$RELEASE_TAG^{commit}")" = "$(git rev-parse HEAD)"
+      - name: Set up Node.js
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 24
+          cache: npm
+      - name: Install locked dependencies
+        run: npm ci
+      - id: version
+        name: Verify package version
+        shell: bash
+        env:
+          RELEASE_TAG: ${{ steps.tag.outputs.value }}
+        run: |
+          package_version="$(node -p "require('./package.json').version")"
+          test "v$package_version" = "$RELEASE_TAG"
+          printf 'value=%s\n' "$package_version" >> "$GITHUB_OUTPUT"
+      - name: Run quality gate
+        run: |
+          npm run format:check
+          npm run lint
+          npm run typecheck
+          npm test
+          npm run build
+      - name: Test renderer workflows
+        run: |
+          npx playwright install --with-deps chromium
+          npm run test:e2e
+      - name: Audit dependencies and signatures
+        run: |
+          npm audit --audit-level=high
+          npm audit signatures
+
+  macos:
+    name: Build signed macOS artifacts
+    needs: verify
+    runs-on: macos-15
+    timeout-minutes: 50
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          ref: ${{ needs.verify.outputs.tag }}
+          persist-credentials: false
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+      - run: npm run build
+      - name: Build, sign, and notarize both architectures
+        shell: bash
+        env:
+          CSC_LINK: ${{ secrets.MAC_CSC_LINK }}
+          CSC_KEY_PASSWORD: ${{ secrets.MAC_CSC_KEY_PASSWORD }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        run: |
+          for name in CSC_LINK CSC_KEY_PASSWORD APPLE_ID APPLE_APP_SPECIFIC_PASSWORD APPLE_TEAM_ID; do
+            if [[ -z "${!name}" ]]; then echo "Missing required secret: $name" >&2; exit 1; fi
+          done
+          npx electron-builder --mac --publish never
+      - name: Smoke-test native packaged application
+        shell: bash
+        run: PORTICLE_PACKAGE_EXECUTABLE=release/mac-arm64/Porticle.app/Contents/MacOS/Porticle npm run test:package
+      - name: Verify signatures, notarization, plist, and Electron fuses
+        shell: bash
+        env:
+          EXPECTED_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        run: |
+          test -n "$EXPECTED_TEAM_ID"
+          for app_path in release/mac/Porticle.app release/mac-arm64/Porticle.app; do
+            codesign --verify --deep --strict --verbose=2 "$app_path"
+            codesign -dv --verbose=4 "$app_path" 2>&1 | grep -F "TeamIdentifier=$EXPECTED_TEAM_ID"
+            spctl --assess --type execute --verbose=2 "$app_path"
+            xcrun stapler validate "$app_path"
+            test "$(plutil -extract LSUIElement raw -o - "$app_path/Contents/Info.plist")" = 'true'
+            test "$(plutil -extract NSAppTransportSecurity.NSAllowsArbitraryLoads raw -o - "$app_path/Contents/Info.plist")" = 'false'
+            fuse_state="$(npx @electron/fuses read --app "$app_path")"
+            grep -F 'RunAsNode is Disabled' <<<"$fuse_state"
+            grep -F 'EnableCookieEncryption is Enabled' <<<"$fuse_state"
+            grep -F 'EnableNodeOptionsEnvironmentVariable is Disabled' <<<"$fuse_state"
+            grep -F 'EnableNodeCliInspectArguments is Disabled' <<<"$fuse_state"
+            grep -F 'EnableEmbeddedAsarIntegrityValidation is Enabled' <<<"$fuse_state"
+            grep -F 'OnlyLoadAppFromAsar is Enabled' <<<"$fuse_state"
+            grep -F 'LoadBrowserProcessSpecificV8Snapshot is Disabled' <<<"$fuse_state"
+            grep -F 'GrantFileProtocolExtraPrivileges is Disabled' <<<"$fuse_state"
+            grep -F 'WasmTrapHandlers is Enabled' <<<"$fuse_state"
+          done
+      - name: Generate production SBOM
+        shell: bash
+        env:
+          VERSION: ${{ needs.verify.outputs.version }}
+        run: npm sbom --omit=dev --sbom-format=cyclonedx > "release/Porticle-$VERSION-macos-sbom.cdx.json"
+      - name: Upload macOS release candidates
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: release-macos
+          path: |
+            release/Porticle-*-mac-arm64.dmg
+            release/Porticle-*-mac-arm64.zip
+            release/Porticle-*-mac-arm64.zip.blockmap
+            release/Porticle-*-mac-x64.dmg
+            release/Porticle-*-mac-x64.zip
+            release/Porticle-*-mac-x64.zip.blockmap
+            release/Porticle-*-macos-sbom.cdx.json
+            release/latest-mac.yml
+          if-no-files-found: error
+          retention-days: 7
+
+  windows:
+    name: Build signed Windows artifacts
+    needs: verify
+    runs-on: windows-2025
+    timeout-minutes: 50
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          ref: ${{ needs.verify.outputs.tag }}
+          persist-credentials: false
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+      - run: npm run build
+      - name: Build and sign both architectures
+        shell: pwsh
+        env:
+          CSC_LINK: ${{ secrets.WIN_CSC_LINK }}
+          CSC_KEY_PASSWORD: ${{ secrets.WIN_CSC_KEY_PASSWORD }}
+        run: |
+          if ([string]::IsNullOrWhiteSpace($env:CSC_LINK)) { throw 'Missing WIN_CSC_LINK' }
+          if ([string]::IsNullOrWhiteSpace($env:CSC_KEY_PASSWORD)) { throw 'Missing WIN_CSC_KEY_PASSWORD' }
+          npx electron-builder --win --publish never
+      - name: Verify Authenticode signatures and Electron fuses
+        shell: pwsh
+        run: |
+          $files = @(
+            Get-ChildItem release -Filter 'Porticle-*-windows-*.exe'
+            Get-ChildItem release -Recurse -Filter 'Porticle.exe' | Where-Object FullName -Match 'unpacked'
+          )
+          if ($files.Count -lt 4) { throw "Expected two installers and two packaged executables, found $($files.Count)" }
+          $publishers = @()
+          foreach ($file in $files) {
+            $signature = Get-AuthenticodeSignature $file.FullName
+            if ($signature.Status -ne 'Valid') { throw "Invalid signature on $($file.Name): $($signature.Status)" }
+            $publisher = $signature.SignerCertificate.GetNameInfo([System.Security.Cryptography.X509Certificates.X509NameType]::SimpleName, $false)
+            if ([string]::IsNullOrWhiteSpace($publisher)) { throw "Missing signer publisher on $($file.Name)" }
+            $publishers += $publisher
+          }
+          $publishers = @($publishers | Sort-Object -Unique)
+          if ($publishers.Count -ne 1) { throw "Expected one signer publisher, found: $($publishers -join ', ')" }
+          $updateConfigs = @(Get-ChildItem release -Recurse -Filter 'app-update.yml')
+          if ($updateConfigs.Count -ne 2) { throw "Expected two app-update.yml files, found $($updateConfigs.Count)" }
+          foreach ($config in $updateConfigs) {
+            if (-not (Get-Content $config.FullName -Raw).Contains($publishers[0])) {
+              throw "Updater publisher does not match Authenticode signer in $($config.FullName)"
+            }
+          }
+          Get-ChildItem release -Recurse -Filter 'Porticle.exe' | Where-Object FullName -Match 'unpacked' | ForEach-Object {
+            $fuses = npx @electron/fuses read --app $_.FullName
+            $expected = @(
+              'RunAsNode is Disabled',
+              'EnableCookieEncryption is Enabled',
+              'EnableNodeOptionsEnvironmentVariable is Disabled',
+              'EnableNodeCliInspectArguments is Disabled',
+              'EnableEmbeddedAsarIntegrityValidation is Enabled',
+              'OnlyLoadAppFromAsar is Enabled',
+              'LoadBrowserProcessSpecificV8Snapshot is Disabled',
+              'GrantFileProtocolExtraPrivileges is Disabled',
+              'WasmTrapHandlers is Enabled'
+            )
+            foreach ($value in $expected) {
+              if ($fuses -notmatch [regex]::Escape($value)) {
+                throw "Unexpected Electron fuse state for $($_.FullName): missing $value"
+              }
+            }
+          }
+      - name: Generate production SBOM
+        shell: pwsh
+        env:
+          VERSION: ${{ needs.verify.outputs.version }}
+        run: npm sbom --omit=dev --sbom-format=cyclonedx | Out-File -Encoding utf8 "release/Porticle-$env:VERSION-windows-sbom.cdx.json"
+      - name: Upload Windows release candidates
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: release-windows
+          path: |
+            release/Porticle-*-windows-arm64.exe
+            release/Porticle-*-windows-arm64.exe.blockmap
+            release/Porticle-*-windows-x64.exe
+            release/Porticle-*-windows-x64.exe.blockmap
+            release/Porticle-*-windows-sbom.cdx.json
+            release/latest.yml
+          if-no-files-found: error
+          retention-days: 7
+
+  publish:
+    name: Verify and publish release
+    needs: [verify, macos, windows]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    permissions:
+      contents: write
+      id-token: write
+      attestations: write
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          ref: ${{ needs.verify.outputs.tag }}
+          persist-credentials: false
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 24
+      - name: Download release candidates
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          pattern: release-*
+          path: artifacts
+          merge-multiple: true
+      - name: Verify manifests and generate checksums
+        run: npm run release:verify -- artifacts "${{ needs.verify.outputs.version }}"
+      - name: Attest release artifacts
+        uses: actions/attest-build-provenance@977bb373ede98d70efdf65b84cb5f73e068dcc2a # v3
+        with:
+          subject-path: artifacts/*
+      - name: Publish release atomically
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ needs.verify.outputs.tag }}
+        run: |
+          if gh release view "$RELEASE_TAG" --json isDraft >/tmp/release.json 2>/dev/null; then
+            test "$(jq -r .isDraft /tmp/release.json)" = 'true'
+          else
+            gh release create "$RELEASE_TAG" --draft --verify-tag --generate-notes --title "Porticle $RELEASE_TAG"
+          fi
+          mapfile -t stale_assets < <(gh release view "$RELEASE_TAG" --json assets --jq '.assets[].name')
+          for asset in "${stale_assets[@]}"; do
+            gh release delete-asset "$RELEASE_TAG" "$asset" --yes
+          done
+          gh release upload "$RELEASE_TAG" artifacts/*
+          find artifacts -maxdepth 1 -type f -printf '%f\n' | sort > /tmp/local-assets.txt
+          gh release view "$RELEASE_TAG" --json assets --jq '.assets[].name' | sort > /tmp/remote-assets.txt
+          diff -u /tmp/local-assets.txt /tmp/remote-assets.txt
+          gh release edit "$RELEASE_TAG" --draft=false --latest

@@ -1,0 +1,88 @@
+name: Bug report
+description: Report incorrect discovery, actions, permissions, or UI behavior.
+title: '[Bug]: '
+labels: [bug, needs-triage]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for reporting a bug. **Redact tokens, usernames, private paths, and project names from commands and logs.** For security vulnerabilities, use private vulnerability reporting instead.
+  - type: input
+    id: version
+    attributes:
+      label: Porticle version
+      placeholder: 0.1.0 or commit SHA
+    validations:
+      required: true
+  - type: dropdown
+    id: platform
+    attributes:
+      label: Operating system
+      options:
+        - macOS
+        - Windows
+    validations:
+      required: true
+  - type: input
+    id: os-version
+    attributes:
+      label: OS version and architecture
+      placeholder: macOS 15.5 arm64 / Windows 11 24H2 x64
+    validations:
+      required: true
+  - type: dropdown
+    id: area
+    attributes:
+      label: Area
+      options:
+        - Port discovery
+        - Process details or service recognition
+        - Graceful or force termination
+        - Permissions or protected process
+        - Search, filtering, or keyboard controls
+        - Tray, window, login, or shortcut behavior
+        - Appearance or accessibility
+        - Packaging, installation, or update
+        - Other
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Reproduction steps
+      description: Include the protocol, address, port, and PID where relevant. Redact command secrets.
+      placeholder: |
+        1. Start ...
+        2. Open Porticle ...
+        3. Click ...
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behavior
+    validations:
+      required: true
+  - type: textarea
+    id: actual
+    attributes:
+      label: Actual behavior
+    validations:
+      required: true
+  - type: textarea
+    id: diagnostics
+    attributes:
+      label: Redacted diagnostics
+      description: Optional screenshots or output. Confirm it contains no secrets or private data.
+      render: shell
+  - type: checkboxes
+    id: checklist
+    attributes:
+      label: Checklist
+      options:
+        - label: I searched existing issues and pull requests.
+          required: true
+        - label: I removed secrets and private information.
+          required: true
+        - label: This is not a security vulnerability.
+          required: true

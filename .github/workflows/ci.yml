@@ -1,0 +1,146 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  quality:
+    name: Quality / ${{ matrix.name }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: macOS ARM64
+            os: macos-15
+          - name: Windows x64
+            os: windows-2025
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+      - run: npm run format:check
+      - run: npm run lint
+      - run: npm run typecheck
+      - run: npm test
+      - run: npm run build
+      - run: npm audit --audit-level=high
+      - run: npm audit signatures
+
+  browser:
+    name: Renderer workflows
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+      - run: npx playwright install --with-deps chromium
+      - run: npm run test:e2e
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        if: failure()
+        with:
+          name: playwright-report
+          path: playwright-report/
+          if-no-files-found: ignore
+          retention-days: 7
+
+  package-smoke:
+    name: Package smoke / ${{ matrix.name }}
+    needs: quality
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: macOS ARM64
+            os: macos-15
+          - name: macOS Intel
+            os: macos-15-intel
+          - name: Windows x64
+            os: windows-2025
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+      - name: Build and verify ad-hoc macOS app
+        if: runner.os == 'macOS'
+        run: npm run package:mac:adhoc
+      - name: Verify macOS package hardening
+        if: runner.os == 'macOS'
+        shell: bash
+        run: |
+          arch="$(node -p 'process.arch')"
+          app_dir="$([ "$arch" = 'x64' ] && printf 'mac' || printf 'mac-%s' "$arch")"
+          app_path="release/$app_dir/Porticle.app"
+          codesign --verify --deep --strict --verbose=2 "$app_path"
+          fuse_state="$(npx @electron/fuses read --app "$app_path")"
+          grep -F 'RunAsNode is Disabled' <<<"$fuse_state"
+          grep -F 'EnableCookieEncryption is Enabled' <<<"$fuse_state"
+          grep -F 'EnableNodeOptionsEnvironmentVariable is Disabled' <<<"$fuse_state"
+          grep -F 'EnableNodeCliInspectArguments is Disabled' <<<"$fuse_state"
+          grep -F 'EnableEmbeddedAsarIntegrityValidation is Enabled' <<<"$fuse_state"
+          grep -F 'OnlyLoadAppFromAsar is Enabled' <<<"$fuse_state"
+          grep -F 'LoadBrowserProcessSpecificV8Snapshot is Disabled' <<<"$fuse_state"
+          grep -F 'GrantFileProtocolExtraPrivileges is Disabled' <<<"$fuse_state"
+          grep -F 'WasmTrapHandlers is Enabled' <<<"$fuse_state"
+          test "$(plutil -extract NSAppTransportSecurity.NSAllowsArbitraryLoads raw -o - "$app_path/Contents/Info.plist")" = 'false'
+          PORTICLE_PACKAGE_EXECUTABLE="$app_path/Contents/MacOS/Porticle" npm run test:package
+      - name: Build unpacked Windows app
+        if: runner.os == 'Windows'
+        run: |
+          npm run build
+          npx electron-builder --win dir --x64 --publish never
+      - name: Smoke-test Windows package
+        if: runner.os == 'Windows'
+        run: npm run test:package
+        env:
+          PORTICLE_PACKAGE_EXECUTABLE: release/win-unpacked/Porticle.exe
+      - name: Verify Windows package hardening
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $fuses = npx @electron/fuses read --app release/win-unpacked/Porticle.exe
+          $expected = @(
+            'RunAsNode is Disabled',
+            'EnableCookieEncryption is Enabled',
+            'EnableNodeOptionsEnvironmentVariable is Disabled',
+            'EnableNodeCliInspectArguments is Disabled',
+            'EnableEmbeddedAsarIntegrityValidation is Enabled',
+            'OnlyLoadAppFromAsar is Enabled',
+            'LoadBrowserProcessSpecificV8Snapshot is Disabled',
+            'GrantFileProtocolExtraPrivileges is Disabled',
+            'WasmTrapHandlers is Enabled'
+          )
+          foreach ($value in $expected) {
+            if ($fuses -notmatch [regex]::Escape($value)) {
+              throw "Unexpected Electron fuse state: missing $value"
+            }
+          }
